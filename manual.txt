@@ -1,0 +1,60 @@
+RUST CONSOLE CALCULATOR - COMPREHENSIVE MANUAL
+==============================================
+
+This calculator supports complex mathematical expressions with functions,
+constants, and various operations. Below is a complete reference guide.
+
+1. BASIC OPERATIONS:
+   + : Addition           (e.g., 5 + 3)
+   - : Subtraction        (e.g., 7 - 2)
+   * : Multiplication     (e.g., 4 * 6)
+   / : Division           (e.g., 9 / 3)
+   % : Modulo             (e.g., 10 % 3)
+   ^ : Exponentiation     (e.g., 2 ^ 3 = 8)
+   r : Root operation     (e.g., 8 r 3 = 2)
+
+2. MATHEMATICAL FUNCTIONS:
+   sin(x)   : Sine of x (x in degrees)
+   cos(x)   : Cosine of x (x in degrees)
+   tan(x)   : Tangent of x (x in degrees)
+   asin(x)  : Arcsine (returns degrees, x ∈ [-1,1])
+   acos(x)  : Arccosine (returns degrees, x ∈ [-1,1])
+   atan(x)  : Arctangent (returns degrees)
+   ln(x)    : Natural logarithm (x > 0)
+   log(x)   : Base-10 logarithm (x > 0)
+   exp(x)   : Exponential function (e^x)
+   abs(x)   : Absolute value
+   floor(x) : Round down to nearest integer
+   ceil(x)  : Round up to nearest integer
+   round(x) : Round to nearest integer
+
+3. CONSTANTS:
+   pi : π (3.141592653589793)
+   e  : Euler's number (2.718281828459045)
+
+4. SYNTAX EXAMPLES:
+   Basic: 2 + 3 * 4
+   Functions: sin(45) + cos(45)
+   Nested: 2 * (3 + 4)
+   Complex: exp(ln(5)) + (10 r 2) * abs(-5)
+   Scientific: 1.2e3 * 2 = 2400
+
+5. KEYBOARD SHORTCUTS:
+   ← / →    : Move cursor left/right
+   Backspace: Delete character before cursor
+   Delete   : Delete character under cursor
+   Home     : Jump to start of line
+   End      : Jump to end of line
+   ↑ / ↓    : Navigate through history
+   Enter    : Calculate expression
+   q        : Quit calculator
+   help     : Show this manual
+
+6. ADVANCED USAGE:
+   - Expressions can include multiple nested parentheses
+   - Scientific notation is supported (e.g., 1.2e3 = 1200)
+   - Spaces are optional but can be used for readability
+   - History is preserved between calculations
+   - Errors show detailed explanations
+
+Press Enter to return to calculator...
