@@ -17,12 +17,90 @@ enum Token {
     RParen,
 }
 
+struct Step {
+    operation: String,
+    result: f64,
+}
+
+struct EvaluationTrace {
+    steps: Vec<Step>,
+    detailed_mode: bool,
+}
+
+impl EvaluationTrace {
+    fn new(detailed_mode: bool) -> Self {
+        EvaluationTrace {
+            steps: Vec::new(),
+            detailed_mode,
+        }
+    }
+
+    fn add_step(&mut self, operation: String, result: f64) {
+        if self.detailed_mode {
+            self.steps.push(Step { operation, result });
+        }
+    }
+}
+
+// Функция для форматирования выражения с пробелами вокруг операторов
+fn format_with_spaces(expr: &str) -> String {
+    let mut result = String::new();
+    let mut last_char = '\0';
+    let mut in_function = false;
+
+    for c in expr.chars() {
+        // Проверяем, является ли символ оператором
+        if "+-*/^%".contains(c) {
+            // Добавляем пробелы вокруг оператора
+            if last_char != ' ' && last_char != '\0' {
+                result.push(' ');
+            }
+            result.push(c);
+            result.push(' ');
+        }
+        // Обработка скобок и запятых
+        else if c == '(' || c == ')' || c == ',' {
+            if c == '(' {
+                in_function = true;
+            } else if c == ')' {
+                in_function = false;
+            }
+
+            if last_char != ' ' {
+                result.push(' ');
+            }
+            result.push(c);
+            if c != ',' {
+                result.push(' ');
+            }
+        }
+        // Обработка букв (идентификаторов функций)
+        else if c.is_alphabetic() {
+            if !in_function && last_char != ' ' && last_char != '\0' && !result.ends_with(' ') {
+                result.push(' ');
+            }
+            result.push(c);
+        }
+        // Обработка цифр и точек
+        else {
+            result.push(c);
+        }
+
+        last_char = c;
+    }
+
+    // Заменяем множественные пробелы на одинарные
+    let parts: Vec<&str> = result.split_whitespace().collect();
+    parts.join(" ")
+}
+
 fn main() {
     println!("Rust Console Calculator");
     println!("Supports: +, -, *, /, %, ^, r (root), functions (sin, cos, etc.)");
     println!("Constants: pi, e");
     println!("Navigation: ←/→, Backspace/Delete, Home/End, ↑/↓ for history");
-    println!("Type 'quit' to exit or 'clear' to reset history\n");
+    println!("Special commands: 'quit' to exit, 'clear' to reset history");
+    println!("\rAdd 'details' before expression for step-by-step evaluation\n");
 
     let mut stdout = stdout().into_raw_mode().unwrap();
     let mut history: Vec<String> = Vec::new();
@@ -94,33 +172,74 @@ fn main() {
             continue;
         }
 
-        // Обработка команд после нажатия Enter
+        // Handle commands after Enter
         match input.to_lowercase().as_str() {
             "quit" | "exit" | "q" => {
-                println!("\nGoodbye!");
+                println!("\r\nGoodbye!");
                 return;
             }
             "clear" | "reset" => {
                 history.clear();
                 history_index = 0;
-                println!("\nHistory cleared\n");
+                println!("\r\nHistory cleared\n");
                 continue;
             }
             _ => {}
         }
 
+        // Check for detailed mode request
+        let (detailed_mode, processed_input) = if input.to_lowercase().starts_with("details ") {
+            (true, input[8..].trim())
+        } else if input.to_lowercase().ends_with(" details") {
+            (true, input[..input.len()-7].trim())
+        } else {
+            (false, input)
+        };
+
+        if processed_input.is_empty() {
+            println!("\r\nPlease enter a valid expression after 'details'");
+            continue;
+        }
+
         history.push(input.to_string());
         history_index = history.len();
 
-        match tokenize(input) {
+        match tokenize(processed_input) {
             Ok(tokens) => {
                 let mut parser = Parser::new(tokens);
-                match parser.parse() {
-                    Ok(result) => println!("\r\n  {} = {}\n", input, result),
-                    Err(e) => println!("\r\n  {} = Error: {}\n", input, e),
+                let mut trace = EvaluationTrace::new(detailed_mode);
+
+                match parser.parse(&mut trace) {
+                    Ok(result) => {
+                        // Форматируем выражение с пробелами
+                        let formatted_expr = format_with_spaces(processed_input);
+
+                        // Вывод основного результата
+                        print!("\r\n  {} = {}\n", formatted_expr, result);
+
+                        // Вывод пошаговых операций в детализированном режиме
+                        if detailed_mode && !trace.steps.is_empty() {
+                            println!("\r\n  Step-by-step evaluation:");
+                            for (i, step) in trace.steps.iter().enumerate() {
+                                // Форматируем каждую операцию
+                                let formatted_op = format_with_spaces(&step.operation);
+                                print!("\r  Step {}: {} = {}", i + 1, formatted_op, step.result);
+                                stdout.flush().unwrap();
+                                println!();
+                            }
+                            println!();
+                        }
+                    }
+                    Err(e) => {
+                        let formatted_expr = format_with_spaces(processed_input);
+                        println!("\r\n  {} = Error: {}\n", formatted_expr, e);
+                    }
                 }
             }
-            Err(e) => println!("\r\n  {} = Error: {}\n", input, e),
+            Err(e) => {
+                let formatted_expr = format_with_spaces(processed_input);
+                println!("\r\n  {} = Error: {}\n", formatted_expr, e);
+            }
         }
     }
 }
@@ -215,26 +334,34 @@ impl Parser {
         Parser { tokens, current: 0 }
     }
 
-    fn parse(&mut self) -> Result<f64, String> {
-        let result = self.expr()?;
+    fn parse(&mut self, trace: &mut EvaluationTrace) -> Result<f64, String> {
+        let result = self.expr(trace)?;
         if self.current < self.tokens.len() {
             return Err("Unexpected tokens at end of expression".to_string());
         }
         Ok(result)
     }
 
-    fn expr(&mut self) -> Result<f64, String> {
-        let mut left = self.term()?;
+    fn expr(&mut self, trace: &mut EvaluationTrace) -> Result<f64, String> {
+        let mut left = self.term(trace)?;
 
         while self.current < self.tokens.len() {
             match self.tokens[self.current] {
                 Token::Op('+') => {
                     self.current += 1;
-                    left += self.term()?;
+                    let right = self.term(trace)?;
+                    // Добавляем пробелы вокруг оператора
+                    let operation = format!("{} + {}", left, right);
+                    left += right;
+                    trace.add_step(operation, left);
                 }
                 Token::Op('-') => {
                     self.current += 1;
-                    left -= self.term()?;
+                    let right = self.term(trace)?;
+                    // Добавляем пробелы вокруг оператора
+                    let operation = format!("{} - {}", left, right);
+                    left -= right;
+                    trace.add_step(operation, left);
                 }
                 _ => break,
             }
@@ -242,26 +369,37 @@ impl Parser {
         Ok(left)
     }
 
-    fn term(&mut self) -> Result<f64, String> {
-        let mut left = self.factor()?;
+    fn term(&mut self, trace: &mut EvaluationTrace) -> Result<f64, String> {
+        let mut left = self.factor(trace)?;
 
         while self.current < self.tokens.len() {
             match self.tokens[self.current] {
                 Token::Op('*') => {
                     self.current += 1;
-                    left *= self.factor()?;
+                    let right = self.factor(trace)?;
+                    // Добавляем пробелы вокруг оператора
+                    let operation = format!("{} * {}", left, right);
+                    left *= right;
+                    trace.add_step(operation, left);
                 }
                 Token::Op('/') => {
                     self.current += 1;
-                    let right = self.factor()?;
+                    let right = self.factor(trace)?;
                     if right == 0.0 {
                         return Err("Division by zero".to_string());
                     }
+                    // Добавляем пробелы вокруг оператора
+                    let operation = format!("{} / {}", left, right);
                     left /= right;
+                    trace.add_step(operation, left);
                 }
                 Token::Op('%') => {
                     self.current += 1;
-                    left = (left as i64 % self.factor()? as i64) as f64;
+                    let right = self.factor(trace)?;
+                    // Добавляем пробелы вокруг оператора
+                    let operation = format!("{} % {}", left, right);
+                    left = (left as i64 % right as i64) as f64;
+                    trace.add_step(operation, left);
                 }
                 _ => break,
             }
@@ -269,54 +407,73 @@ impl Parser {
         Ok(left)
     }
 
-    fn factor(&mut self) -> Result<f64, String> {
-        let base = self.power()?;
+    fn factor(&mut self, trace: &mut EvaluationTrace) -> Result<f64, String> {
+        let base = self.power(trace)?;
 
         if self.current < self.tokens.len() && self.tokens[self.current] == Token::Op('r') {
             self.current += 1;
-            let exponent = self.power()?;
+            let exponent = self.power(trace)?;
             if exponent == 0.0 {
                 return Err("Root degree cannot be zero".to_string());
             }
             if base < 0.0 && exponent % 2.0 == 0.0 {
                 return Err("Even root of negative number".to_string());
             }
-            return Ok(base.powf(1.0 / exponent));
+            let result = base.powf(1.0 / exponent);
+            // Добавляем пробелы вокруг оператора
+            trace.add_step(format!("{} r {}", base, exponent), result);
+            Ok(result)
+        } else {
+            Ok(base)
         }
-
-        Ok(base)
     }
 
-    fn power(&mut self) -> Result<f64, String> {
-        let mut left = self.unary()?;
+    fn power(&mut self, trace: &mut EvaluationTrace) -> Result<f64, String> {
+        let left = self.unary(trace)?;
 
         if self.current < self.tokens.len() && self.tokens[self.current] == Token::Op('^') {
             self.current += 1;
-            let right = self.power()?;
-            left = left.powf(right);
+            let right = self.power(trace)?;
+            let result = left.powf(right);
+            // Добавляем пробелы вокруг оператора
+            trace.add_step(format!("{} ^ {}", left, right), result);
+            Ok(result)
+        } else {
+            Ok(left)
         }
-
-        Ok(left)
     }
 
-    fn unary(&mut self) -> Result<f64, String> {
+    fn unary(&mut self, trace: &mut EvaluationTrace) -> Result<f64, String> {
         let mut sign = 1.0;
+        let mut sign_changes = 0;
 
         while self.current < self.tokens.len() {
             match self.tokens[self.current] {
-                Token::Op('+') => self.current += 1,
+                Token::Op('+') => {
+                    self.current += 1;
+                }
                 Token::Op('-') => {
                     sign = -sign;
+                    sign_changes += 1;
                     self.current += 1;
                 }
                 _ => break,
             }
         }
 
-        self.primary().map(|val| sign * val)
+        let mut result = self.primary(trace)?;
+        result *= sign;
+
+        if sign_changes > 0 {
+            let sign_str = if sign == 1.0 { "+" } else { "-" };
+            // Добавляем пробел между знаком и числом
+            trace.add_step(format!("{} {}", sign_str, result.abs()), result);
+        }
+
+        Ok(result)
     }
 
-    fn primary(&mut self) -> Result<f64, String> {
+    fn primary(&mut self, trace: &mut EvaluationTrace) -> Result<f64, String> {
         if self.current >= self.tokens.len() {
             return Err("Unexpected end of input".to_string());
         }
@@ -328,7 +485,7 @@ impl Parser {
             }
             Token::LParen => {
                 self.current += 1;
-                let expr = self.expr()?;
+                let expr = self.expr(trace)?;
                 if self.current < self.tokens.len() && self.tokens[self.current] == Token::RParen {
                     self.current += 1;
                     Ok(expr)
@@ -341,8 +498,14 @@ impl Parser {
                 self.current += 1;
 
                 // Handle constants
-                if name == "pi" { return Ok(PI); }
-                if name == "e" { return Ok(E); }
+                if name == "pi" {
+                    trace.add_step("pi".to_string(), PI);
+                    return Ok(PI);
+                }
+                if name == "e" {
+                    trace.add_step("e".to_string(), E);
+                    return Ok(E);
+                }
 
                 // Handle functions
                 if self.current >= self.tokens.len() || self.tokens[self.current] != Token::LParen {
@@ -350,7 +513,7 @@ impl Parser {
                 }
                 self.current += 1;
 
-                let arg = self.expr()?;
+                let arg = self.expr(trace)?;
 
                 if self.current >= self.tokens.len() || self.tokens[self.current] != Token::RParen {
                     return Err("Missing closing parenthesis for function".to_string());
@@ -358,46 +521,52 @@ impl Parser {
                 self.current += 1;
 
                 // Handle math functions with proper error checking
-                match name.as_str() {
-                    "sin" => Ok(arg.to_radians().sin()),
-                    "cos" => Ok(arg.to_radians().cos()),
-                    "tan" => Ok(arg.to_radians().tan()),
+                let result = match name.as_str() {
+                    "sin" => arg.to_radians().sin(),
+                    "cos" => arg.to_radians().cos(),
+                    "tan" => arg.to_radians().tan(),
                     "asin" => {
                         if arg < -1.0 || arg > 1.0 {
-                            Err("asin domain: [-1, 1]".to_string())
-                        } else {
-                            Ok(arg.asin().to_degrees())
+                            return Err("asin domain: [-1, 1]".to_string());
                         }
+                        arg.asin().to_degrees()
                     }
                     "acos" => {
                         if arg < -1.0 || arg > 1.0 {
-                            Err("acos domain: [-1, 1]".to_string())
-                        } else {
-                            Ok(arg.acos().to_degrees())
+                            return Err("acos domain: [-1, 1]".to_string());
                         }
+                        arg.acos().to_degrees()
                     }
-                    "atan" => Ok(arg.atan().to_degrees()),
+                    "atan" => arg.atan().to_degrees(),
                     "ln" => {
                         if arg <= 0.0 {
-                            Err("ln domain: positive numbers".to_string())
-                        } else {
-                            Ok(arg.ln())
+                            return Err("ln domain: positive numbers".to_string());
                         }
+                        arg.ln()
                     }
                     "log" => {
                         if arg <= 0.0 {
-                            Err("log domain: positive numbers".to_string())
-                        } else {
-                            Ok(arg.log10())
+                            return Err("log domain: positive numbers".to_string());
                         }
+                        arg.log10()
                     }
-                    "exp" => Ok(arg.exp()),
-                    "abs" => Ok(arg.abs()),
-                    "floor" => Ok(arg.floor()),
-                    "ceil" => Ok(arg.ceil()),
-                    "round" => Ok(arg.round()),
-                    _ => Err(format!("Unknown function: '{}'", name)),
-                }
+                    "exp" => arg.exp(),
+                    "abs" => arg.abs(),
+                    "floor" => arg.floor(),
+                    "ceil" => arg.ceil(),
+                    "round" => arg.round(),
+                    "sqrt" => {
+                        if arg < 0.0 {
+                            return Err("sqrt domain: non-negative numbers".to_string());
+                        }
+                        arg.sqrt()
+                    }
+                    _ => return Err(format!("Unknown function: '{}'", name)),
+                };
+
+                // Форматируем вызов функции с пробелами
+                trace.add_step(format!("{}({})", name, arg), result);
+                Ok(result)
             }
             _ => Err("Unexpected token".to_string()),
         }
