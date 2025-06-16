@@ -22,7 +22,7 @@ fn main() {
     println!("Supports: +, -, *, /, %, ^, r (root), functions (sin, cos, etc.)");
     println!("Constants: pi, e");
     println!("Navigation: ←/→, Backspace/Delete, Home/End, ↑/↓ for history");
-    println!("Type 'q' to quit\n");
+    println!("Type 'quit' to exit or 'clear' to reset history\n");
 
     let mut stdout = stdout().into_raw_mode().unwrap();
     let mut history: Vec<String> = Vec::new();
@@ -51,10 +51,6 @@ fn main() {
             stdout.flush().unwrap();
 
             match keys.next().unwrap().unwrap() {
-                Key::Char('q') => {
-                    println!("\nGoodbye!");
-                    return;
-                }
                 Key::Char('\n') => break,
                 Key::Char(c) => {
                     expression.insert(cursor_pos, c);
@@ -98,6 +94,21 @@ fn main() {
             continue;
         }
 
+        // Обработка команд после нажатия Enter
+        match input.to_lowercase().as_str() {
+            "quit" | "exit" | "q" => {
+                println!("\nGoodbye!");
+                return;
+            }
+            "clear" | "reset" => {
+                history.clear();
+                history_index = 0;
+                println!("\nHistory cleared\n");
+                continue;
+            }
+            _ => {}
+        }
+
         history.push(input.to_string());
         history_index = history.len();
 
@@ -105,11 +116,11 @@ fn main() {
             Ok(tokens) => {
                 let mut parser = Parser::new(tokens);
                 match parser.parse() {
-                    Ok(result) => println!("\n  {} = {}\n", input, result),
-                    Err(e) => println!("\n  {} = Error: {}\n", input, e),
+                    Ok(result) => println!("\r\n  {} = {}\n", input, result),
+                    Err(e) => println!("\r\n  {} = Error: {}\n", input, e),
                 }
             }
-            Err(e) => println!("\n  {} = Error: {}\n", input, e),
+            Err(e) => println!("\r\n  {} = Error: {}\n", input, e),
         }
     }
 }
