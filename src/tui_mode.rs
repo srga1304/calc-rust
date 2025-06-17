@@ -14,7 +14,11 @@ use ratatui::{
     Frame,
 };
 use std::{io, time::Duration};
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+
+// Минимальные размеры терминала
+const MIN_TERMINAL_WIDTH: u16 = 50;
+const MIN_TERMINAL_HEIGHT: u16 = 10;
 
 fn char_index_to_byte_index(s: &str, char_index: usize) -> usize {
     s.char_indices()
@@ -28,7 +32,7 @@ struct HistoryEntry {
     result: Result<f64, String>,
     detailed_steps: Vec<Step>,
     detailed_mode: bool,
-    duration: std::time::Duration, // Добавлено поле для хранения времени вычисления
+    duration: std::time::Duration,
 }
 
 struct App {
@@ -43,6 +47,7 @@ struct App {
     item_start_indices: Vec<usize>,
     history_scroll: usize,
     scroll_to_bottom: bool,
+    terminal_too_small: bool,
 }
 
 impl App {
@@ -59,6 +64,7 @@ impl App {
             item_start_indices: Vec::new(),
             history_scroll: 0,
             scroll_to_bottom: false,
+            terminal_too_small: false,
         }
     }
 
@@ -104,14 +110,13 @@ impl App {
                 result: Err("Please enter a valid expression after 'details'".to_string()),
                 detailed_steps: Vec::new(),
                 detailed_mode: false,
-                duration: std::time::Duration::ZERO, // Нулевая длительность для ошибки
+                duration: std::time::Duration::ZERO,
             });
             self.input.clear();
             self.cursor_position = 0;
             return;
         }
 
-        // Замер времени начала вычисления
         let start_time = std::time::Instant::now();
         let mut trace = EvaluationTrace::new(detailed_mode);
         let result = match tokenize(processed_input) {
@@ -121,14 +126,14 @@ impl App {
             }
             Err(e) => Err(e),
         };
-        let duration = start_time.elapsed(); // Фиксация длительности вычисления
+        let duration = start_time.elapsed();
 
         self.history.push(HistoryEntry {
             input: processed_input.to_string(),
             result,
             detailed_steps: trace.steps,
             detailed_mode,
-            duration, // Сохранение времени вычисления
+            duration,
         });
 
         self.cursor_history = self.history.len().saturating_sub(1);
@@ -192,6 +197,17 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
 }
 
 fn ui(frame: &mut Frame, app: &mut App) {
+    let terminal_size = frame.size();
+
+    // Проверяем размер терминала
+    app.terminal_too_small = terminal_size.width < MIN_TERMINAL_WIDTH ||
+                             terminal_size.height < MIN_TERMINAL_HEIGHT;
+
+    if app.terminal_too_small {
+        render_resize_message(frame, terminal_size);
+        return;
+    }
+
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints(vec![
@@ -199,7 +215,7 @@ fn ui(frame: &mut Frame, app: &mut App) {
             Constraint::Length(1),
             Constraint::Min(3),
         ])
-        .split(frame.size());
+        .split(terminal_size);
 
     render_input(frame, app, layout[0]);
     render_status(frame, layout[1]);
@@ -207,7 +223,46 @@ fn ui(frame: &mut Frame, app: &mut App) {
     app.list_height = layout[2].height as usize;
 }
 
+fn render_resize_message(frame: &mut Frame, area: Rect) {
+    let message = format!(
+        "Terminal too small! Min size: {}x{}. Current: {}x{}",
+        MIN_TERMINAL_WIDTH,
+        MIN_TERMINAL_HEIGHT,
+        area.width,
+        area.height
+    );
+
+    let text = vec![
+        Line::from(Span::styled(
+            message,
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Please resize your terminal window",
+            Style::default().fg(Color::Yellow)
+        )),
+    ];
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Red))
+        .title(" Resize Required ")
+        .title_alignment(Alignment::Center);
+
+    let paragraph = Paragraph::new(text)
+        .block(block)
+        .alignment(Alignment::Center)
+        .wrap(Wrap { trim: true });
+
+    frame.render_widget(paragraph, area);
+}
+
 fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return vec!["".to_string()];
+    }
+
     let mut lines = Vec::new();
     let mut current_line = String::new();
     let mut current_width = 0;
@@ -215,15 +270,49 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     for word in text.split_whitespace() {
         let word_width = word.width();
 
+        // Если слово слишком длинное, разбиваем его
+        if word_width > width {
+            let mut remaining = word;
+            while !remaining.is_empty() {
+                let mut chunk = String::new();
+                let mut chunk_width = 0;
+                let mut chunk_byte_len = 0;
+
+                for c in remaining.chars() {
+                    let char_width = UnicodeWidthChar::width_cjk(c).unwrap_or(1);
+                    if chunk_width + char_width > width {
+                        break;
+                    }
+                    chunk.push(c);
+                    chunk_width += char_width;
+                    chunk_byte_len += c.len_utf8(); // Сохраняем длину в байтах
+                }
+
+                if !current_line.is_empty() {
+                    lines.push(current_line.trim().to_string());
+                    current_line.clear();
+                    current_width = 0;
+                }
+
+                lines.push(chunk);
+                remaining = &remaining[chunk_byte_len..]; // Используем сохраненную длину
+            }
+            continue;
+        }
+
         if current_width + word_width + 1 > width && !current_line.is_empty() {
             lines.push(current_line.trim().to_string());
             current_line.clear();
             current_width = 0;
         }
 
+        if !current_line.is_empty() {
+            current_line.push(' ');
+            current_width += 1;
+        }
+
         current_line.push_str(word);
-        current_line.push(' ');
-        current_width += word_width + 1;
+        current_width += word_width;
     }
 
     if !current_line.is_empty() {
@@ -231,6 +320,178 @@ fn wrap_text(text: &str, width: usize) -> Vec<String> {
     }
 
     lines
+}
+
+fn format_number(x: f64) -> String {
+    if x.abs() > 1e10 || (x.abs() < 1e-5 && x != 0.0) {
+        format!("{:.6e}", x)
+    } else {
+        let s = format!("{:.6}", x);
+        s.trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
+    }
+}
+
+fn format_with_spaces(expr: &str) -> String {
+    let mut result = String::new();
+    let mut last_char = '\0';
+    let mut in_function = false;
+
+    for c in expr.chars() {
+        match c {
+            '+' | '-' | '*' | '/' | '^' | '%' | 'r' => {
+                if last_char != ' ' && last_char != '\0' {
+                    result.push(' ');
+                }
+                result.push(c);
+                result.push(' ');
+                last_char = ' ';
+            }
+            '(' => {
+                if in_function {
+                    result.push(c);
+                } else {
+                    if last_char != ' ' && last_char != '\0' {
+                        result.push(' ');
+                    }
+                    result.push(c);
+                }
+                in_function = false;
+                last_char = '(';
+            }
+            ')' | ',' => {
+                result.push(c);
+                if c == ',' {
+                    result.push(' ');
+                }
+                last_char = c;
+            }
+            _ if c.is_whitespace() => {
+                continue;
+            }
+            _ => {
+                if c.is_alphabetic() {
+                    in_function = true;
+                } else if last_char == ')' || (c.is_numeric() && last_char.is_alphabetic()) {
+                    result.push(' ');
+                }
+                result.push(c);
+                last_char = c;
+            }
+        }
+    }
+
+    result.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn is_math_function(word: &str) -> bool {
+    matches!(
+        word.to_lowercase().as_str(),
+        "sin" | "cos" | "tan" | "asin" | "acos" | "atan" |
+        "sinh" | "cosh" | "tanh" | "asinh" | "acosh" | "atanh" |
+        "ln" | "log" | "exp" | "abs" | "sqrt" | "floor" | "ceil" | "round" |
+        "fact" | "perm" | "comb" | "mean" | "median" | "stdev" |
+        "pi" | "e"
+    )
+}
+
+fn highlight_functions(expr: &str, base_style: Style) -> Vec<Span<'static>> {
+    let function_style = Style::default()
+        .fg(Color::LightBlue)
+        .add_modifier(Modifier::BOLD);
+
+    let operator_style = Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD);
+
+    let number_style = Style::default()
+        .fg(Color::LightGreen);
+
+    let mut spans = Vec::new();
+    let mut current = String::new();
+    let mut in_function = false;
+    let mut in_number = false;
+
+    for c in expr.chars() {
+        if c.is_alphabetic() {
+            // Завершаем число, если начались буквы
+            if in_number {
+                spans.push(Span::styled(current.clone(), number_style));
+                current.clear();
+                in_number = false;
+            }
+
+            current.push(c);
+            in_function = true;
+        } else if c.is_numeric() || c == '.' || c == 'e' || c == 'E' || (in_number && (c == '-' || c == '+')) {
+            // Завершаем функцию, если началось число
+            if in_function {
+                if is_math_function(&current) {
+                    spans.push(Span::styled(current.clone(), function_style));
+                } else {
+                    spans.push(Span::styled(current.clone(), base_style));
+                }
+                current.clear();
+                in_function = false;
+            }
+
+            current.push(c);
+            in_number = true;
+        } else {
+            // Завершаем число или функцию перед оператором/скобкой
+            if in_function {
+                if is_math_function(&current) {
+                    spans.push(Span::styled(current.clone(), function_style));
+                } else {
+                    spans.push(Span::styled(current.clone(), base_style));
+                }
+                current.clear();
+                in_function = false;
+            } else if in_number {
+                spans.push(Span::styled(current.clone(), number_style));
+                current.clear();
+                in_number = false;
+            }
+
+            // Обработка операторов и скобок
+            match c {
+                '(' | ')' => {
+                    // Скобки функций окрашиваем в цвет функции, если это вызов функции
+                    if in_function {
+                        spans.push(Span::styled(c.to_string(), function_style));
+                    } else {
+                        spans.push(Span::styled(c.to_string(), base_style));
+                    }
+                }
+                '+' | '-' | '*' | '/' | '^' | '%' | 'r' => {
+                    spans.push(Span::styled(c.to_string(), operator_style));
+                }
+                ',' => {
+                    spans.push(Span::styled(c.to_string(), base_style));
+                }
+                ' ' => {
+                    spans.push(Span::raw(" "));
+                }
+                _ => {
+                    spans.push(Span::styled(c.to_string(), base_style));
+                }
+            }
+        }
+    }
+
+    // Обработка оставшихся частей
+    if in_function {
+        if is_math_function(&current) {
+            spans.push(Span::styled(current, function_style));
+        } else {
+            spans.push(Span::styled(current, base_style));
+        }
+    } else if in_number {
+        spans.push(Span::styled(current, number_style));
+    }
+
+    spans
 }
 
 fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
@@ -260,12 +521,13 @@ fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
         app.item_start_indices.push(items.len());
 
         let is_selected = i == app.cursor_history;
-        let input_style = Style::default()
+        let base_style = Style::default()
             .fg(if is_selected { Color::Yellow } else { Color::Cyan });
 
         let input = format_with_spaces(&entry.input);
         let input_lines = wrap_text(&input, wrap_width);
-        for (line_idx, line) in input_lines.iter().enumerate() {
+
+        for (line_idx, line) in input_lines.into_iter().enumerate() {
             let mut result_spans = vec![];
 
             if line_idx == 0 {
@@ -274,19 +536,17 @@ fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
                 result_spans.push(Span::styled("  ", Style::default()));
             }
 
-            result_spans.push(Span::styled(line.clone(), input_style));
+            let expr_spans = highlight_functions(&line, base_style);
+            result_spans.extend(expr_spans);
 
             if line_idx == 0 {
                 match &entry.result {
                     Ok(val) => {
-                        let result_str = format!("{:.6}", val)
-                            .trim_end_matches('0')
-                            .trim_end_matches('.')
-                            .to_string();
+                        let result_str = format_number(*val);
                         result_spans.push(Span::styled(" = ", Style::default().fg(Color::Gray)));
                         result_spans.push(Span::styled(
                             result_str,
-                            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                            Style::default().fg(Color::LightMagenta).add_modifier(Modifier::BOLD)
                         ));
                     }
                     Err(e) => {
@@ -305,14 +565,11 @@ fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
         if entry.detailed_mode {
             if !entry.detailed_steps.is_empty() {
                 for (j, step) in entry.detailed_steps.iter().enumerate() {
-                    let step_text = format!("     Step {}: {} = {:.6}", j + 1, step.operation, step.result)
-                        .trim_end_matches('0')
-                        .trim_end_matches('.')
-                        .to_string();
-
+                    let step_result = format_number(step.result);
+                    let step_text = format!("   Step {}: {} = {}", j + 1, step.operation, step_result);
                     let step_lines = wrap_text(&step_text, wrap_width);
 
-                    for (step_idx, line) in step_lines.iter().enumerate() {
+                    for (step_idx, line) in step_lines.into_iter().enumerate() {
                         let prefix = if step_idx == 0 { "    └─ " } else { "       " };
                         let span = Span::styled(
                             format!("{}{}", prefix, line),
@@ -325,9 +582,9 @@ fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
                 match &entry.result {
                     Ok(_) => {}
                     Err(e) => {
-                        let error_line = format!("    └─ Error: {}", e);
+                        let error_line = format!("    ─ Error: {}", e);
                         let error_lines = wrap_text(&error_line, wrap_width);
-                        for (error_idx, line) in error_lines.iter().enumerate() {
+                        for (error_idx, line) in error_lines.into_iter().enumerate() {
                             let prefix = if error_idx == 0 { "    └─ " } else { "       " };
                             let span = Span::styled(
                                 format!("{}{}", prefix, line),
@@ -339,17 +596,16 @@ fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
                 }
             }
 
-            // Добавляем время выполнения для детального режима
             let time_str = format!(
-                "    └─ Time: {:.6} ms",
+                "    ─ Time: {:.6} ms",
                 entry.duration.as_secs_f64() * 1000.0
             );
             let time_lines = wrap_text(&time_str, wrap_width);
-            for (time_idx, line) in time_lines.iter().enumerate() {
+            for (time_idx, line) in time_lines.into_iter().enumerate() {
                 let prefix = if time_idx == 0 { "    └─ " } else { "       " };
                 let span = Span::styled(
                     format!("{}{}", prefix, line),
-                    Style::default().fg(Color::Magenta) // Выделяем цветом
+                    Style::default().fg(Color::Magenta)
                 );
                 items.push(ListItem::new(Line::from(span)));
             }
@@ -389,10 +645,9 @@ fn render_history(frame: &mut Frame, app: &mut App, area: Rect) {
 fn render_status(frame: &mut Frame, area: Rect) {
     let keys = [
         ("Enter", "Calculate"),
-        ("Navigate", "↑/↓ or PgUp/PgDn"),
+        ("↑/↓ or PgUp/PgDn", "Navigate"),
         ("F1", "Help"),
         ("Esc", "Close Help"),
-        ("Ctrl+C", "Quit"),
     ];
 
     let spans: Vec<Span> = keys

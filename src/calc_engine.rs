@@ -35,51 +35,6 @@ impl EvaluationTrace {
     }
 }
 
-pub fn format_with_spaces(expr: &str) -> String {
-    let mut result = String::new();
-    let mut last_char = '\0';
-    let mut in_function = false;
-
-    for c in expr.chars() {
-        if "+-*/^%".contains(c) {
-            if last_char != ' ' && last_char != '\0' {
-                result.push(' ');
-            }
-            result.push(c);
-            result.push(' ');
-        }
-        else if c == '(' || c == ')' || c == ',' {
-            if c == '(' {
-                in_function = true;
-            } else if c == ')' {
-                in_function = false;
-            }
-
-            if last_char != ' ' {
-                result.push(' ');
-            }
-            result.push(c);
-            if c != ',' {
-                result.push(' ');
-            }
-        }
-        else if c.is_alphabetic() {
-            if !in_function && last_char != ' ' && last_char != '\0' && !result.ends_with(' ') {
-                result.push(' ');
-            }
-            result.push(c);
-        }
-        else {
-            result.push(c);
-        }
-
-        last_char = c;
-    }
-
-    let parts: Vec<&str> = result.split_whitespace().collect();
-    parts.join(" ")
-}
-
 pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
     let mut tokens = Vec::new();
     let mut chars = input.chars().peekable();
