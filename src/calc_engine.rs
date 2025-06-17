@@ -7,6 +7,7 @@ pub enum Token {
     Ident(String),
     LParen,
     RParen,
+    Comma,
 }
 
 pub struct Step {
@@ -94,6 +95,10 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
             }
             ')' => {
                 tokens.push(Token::RParen);
+                chars.next();
+            }
+            ',' => {
+                tokens.push(Token::Comma);
                 chars.next();
             }
             '+' | '-' | '*' | '/' | '^' | '%' | 'r' => {
@@ -338,57 +343,197 @@ impl Parser {
                 }
                 self.current += 1;
 
-                let arg = self.expr(trace)?;
+                // Parse arguments
+                let mut args = Vec::new();
+                while self.current < self.tokens.len() && self.tokens[self.current] != Token::RParen {
+                    args.push(self.expr(trace)?);
+
+                    if self.current < self.tokens.len() {
+                        match self.tokens[self.current] {
+                            Token::Comma => {
+                                self.current += 1;
+                            }
+                            Token::RParen => break,
+                            _ => return Err("Expected comma or closing parenthesis".to_string()),
+                        }
+                    }
+                }
 
                 if self.current >= self.tokens.len() || self.tokens[self.current] != Token::RParen {
                     return Err("Missing closing parenthesis for function".to_string());
                 }
                 self.current += 1;
 
+                // Execute function
                 let result = match name.as_str() {
-                    "sin" => arg.to_radians().sin(),
-                    "cos" => arg.to_radians().cos(),
-                    "tan" => arg.to_radians().tan(),
+                    // Trigonometric
+                    "sin" => args[0].to_radians().sin(),
+                    "cos" => args[0].to_radians().cos(),
+                    "tan" => args[0].to_radians().tan(),
                     "asin" => {
-                        if arg < -1.0 || arg > 1.0 {
+                        if args[0] < -1.0 || args[0] > 1.0 {
                             return Err("asin domain: [-1, 1]".to_string());
                         }
-                        arg.asin().to_degrees()
+                        args[0].asin().to_degrees()
                     }
                     "acos" => {
-                        if arg < -1.0 || arg > 1.0 {
+                        if args[0] < -1.0 || args[0] > 1.0 {
                             return Err("acos domain: [-1, 1]".to_string());
                         }
-                        arg.acos().to_degrees()
+                        args[0].acos().to_degrees()
                     }
-                    "atan" => arg.atan().to_degrees(),
+                    "atan" => args[0].atan().to_degrees(),
+
+                    // Exponential
                     "ln" => {
-                        if arg <= 0.0 {
+                        if args[0] <= 0.0 {
                             return Err("ln domain: positive numbers".to_string());
                         }
-                        arg.ln()
+                        args[0].ln()
                     }
                     "log" => {
-                        if arg <= 0.0 {
+                        if args[0] <= 0.0 {
                             return Err("log domain: positive numbers".to_string());
                         }
-                        arg.log10()
+                        args[0].log10()
                     }
-                    "exp" => arg.exp(),
-                    "abs" => arg.abs(),
-                    "floor" => arg.floor(),
-                    "ceil" => arg.ceil(),
-                    "round" => arg.round(),
+                    "exp" => args[0].exp(),
+
+                    // Basic
+                    "abs" => args[0].abs(),
+                    "floor" => args[0].floor(),
+                    "ceil" => args[0].ceil(),
+                    "round" => args[0].round(),
                     "sqrt" => {
-                        if arg < 0.0 {
+                        if args[0] < 0.0 {
                             return Err("sqrt domain: non-negative numbers".to_string());
                         }
-                        arg.sqrt()
+                        args[0].sqrt()
                     }
+
+                    // Hyperbolic
+                    "sinh" => args[0].sinh(),
+                    "cosh" => args[0].cosh(),
+                    "tanh" => args[0].tanh(),
+                    "asinh" => args[0].asinh(),
+                    "acosh" => {
+                        if args[0] < 1.0 {
+                            return Err("acosh domain: x >= 1".to_string());
+                        }
+                        args[0].acosh()
+                    }
+                    "atanh" => {
+                        if args[0] <= -1.0 || args[0] >= 1.0 {
+                            return Err("atanh domain: |x| < 1".to_string());
+                        }
+                        args[0].atanh()
+                    }
+
+                    // Combinatorics
+                    "fact" | "factorial" => {
+                        if args[0] < 0.0 {
+                            return Err("Factorial not defined for negative numbers".to_string());
+                        }
+                        if args[0].fract() != 0.0 {
+                            return Err("Factorial requires integer argument".to_string());
+                        }
+                        let n = args[0] as u64;
+                        let mut result = 1.0;
+                        for i in 1..=n {
+                            result *= i as f64;
+                            if result == f64::INFINITY {
+                                break;
+                            }
+                        }
+                        result
+                    }
+                    "perm" | "npr" => {
+                        if args.len() != 2 {
+                            return Err("perm requires two arguments: n and k".to_string());
+                        }
+                        if args[0] < 0.0 || args[1] < 0.0 {
+                            return Err("perm requires non-negative integers".to_string());
+                        }
+                        if args[0].fract() != 0.0 || args[1].fract() != 0.0 {
+                            return Err("perm requires integer arguments".to_string());
+                        }
+                        let n = args[0] as u64;
+                        let k = args[1] as u64;
+                        if k > n {
+                            return Err("k cannot be greater than n in perm".to_string());
+                        }
+                        let mut result = 1.0;
+                        for i in 0..k {
+                            result *= (n - i) as f64;
+                            if result == f64::INFINITY {
+                                break;
+                            }
+                        }
+                        result
+                    }
+                    "comb" | "ncr" => {
+                        if args.len() != 2 {
+                            return Err("comb requires two arguments: n and k".to_string());
+                        }
+                        if args[0] < 0.0 || args[1] < 0.0 {
+                            return Err("comb requires non-negative integers".to_string());
+                        }
+                        if args[0].fract() != 0.0 || args[1].fract() != 0.0 {
+                            return Err("comb requires integer arguments".to_string());
+                        }
+                        let n = args[0] as u64;
+                        let k = args[1] as u64;
+                        if k > n {
+                            return Err("k cannot be greater than n in comb".to_string());
+                        }
+                        let k = k.min(n - k);
+                        let mut result = 1.0;
+                        for i in 0..k {
+                            result *= (n - i) as f64 / (i + 1) as f64;
+                            if result == f64::INFINITY {
+                                break;
+                            }
+                        }
+                        result
+                    }
+
+                    // Statistical
+                    "mean" => {
+                        if args.is_empty() {
+                            return Err("mean requires at least one argument".to_string());
+                        }
+                        args.iter().sum::<f64>() / args.len() as f64
+                    }
+                    "median" => {
+                        if args.is_empty() {
+                            return Err("median requires at least one argument".to_string());
+                        }
+                        let mut sorted = args.clone();
+                        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                        let mid = sorted.len() / 2;
+                        if sorted.len() % 2 == 0 {
+                            (sorted[mid - 1] + sorted[mid]) / 2.0
+                        } else {
+                            sorted[mid]
+                        }
+                    }
+                    "stdev" | "stddev" => {
+                        if args.len() < 2 {
+                            return Err("stdev requires at least two arguments".to_string());
+                        }
+                        let mean = args.iter().sum::<f64>() / args.len() as f64;
+                        let variance = args.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (args.len() - 1) as f64;
+                        variance.sqrt()
+                    }
+
                     _ => return Err(format!("Unknown function: '{}'", name)),
                 };
 
-                trace.add_step(format!("{}({})", name, arg), result);
+                let args_str = args.iter()
+                    .map(|a| a.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                trace.add_step(format!("{}({})", name, args_str), result);
                 Ok(result)
             }
             _ => Err("Unexpected token".to_string()),

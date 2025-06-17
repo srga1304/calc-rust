@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 unicode-segmentation = "1.10"
+unicode-width = "0.1.0"
 # Для TUI режима
 crossterm = { version = "0.27", optional = true }
 ratatui = { version = "0.24", optional = true }
