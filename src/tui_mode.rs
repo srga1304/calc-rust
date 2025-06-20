@@ -38,6 +38,7 @@ struct HistoryEntry {
 struct App {
     input: String,
     cursor_position: usize,
+    input_scroll: usize,  // Горизонтальное смещение ввода
     history: Vec<HistoryEntry>,
     cursor_history: usize,
     should_quit: bool,
@@ -55,6 +56,7 @@ impl App {
         App {
             input: String::new(),
             cursor_position: 0,
+            input_scroll: 0,  // Начальное смещение = 0
             history: Vec::new(),
             cursor_history: 0,
             should_quit: false,
@@ -85,12 +87,14 @@ impl App {
                 self.input.clear();
                 self.cursor_position = 0;
                 self.history_scroll = 0;
+                self.input_scroll = 0;  // Сброс скролла
                 return;
             }
             "help" => {
                 self.show_help = true;
                 self.input.clear();
                 self.cursor_position = 0;
+                self.input_scroll = 0;  // Сброс скролла
                 return;
             }
             _ => {}
@@ -114,6 +118,7 @@ impl App {
             });
             self.input.clear();
             self.cursor_position = 0;
+            self.input_scroll = 0;  // Сброс скролла
             return;
         }
 
@@ -139,13 +144,26 @@ impl App {
         self.cursor_history = self.history.len().saturating_sub(1);
         self.input.clear();
         self.cursor_position = 0;
+        self.input_scroll = 0;  // Сброс скролла
         self.scroll_to_bottom = true;
     }
 
     fn move_cursor(&mut self, direction: i32) {
         match direction {
-            -1 => self.cursor_position = self.cursor_position.saturating_sub(1),
-            1 => self.cursor_position = (self.cursor_position + 1).min(self.input.chars().count()),
+            -1 => {
+                if self.cursor_position > 0 {
+                    self.cursor_position -= 1;
+                    // Если курсор уходит за левую границу видимой области
+                    if self.cursor_position < self.input_scroll {
+                        self.input_scroll = self.cursor_position;
+                    }
+                }
+            }
+            1 => {
+                if self.cursor_position < self.input.chars().count() {
+                    self.cursor_position += 1;
+                }
+            }
             _ => {}
         }
     }
@@ -164,6 +182,7 @@ impl App {
         }
         self.cursor_position = self.input.chars().count();
         self.scroll_to_bottom = false;
+        self.input_scroll = 0;  // Сброс скролла при навигации по истории
     }
 
     fn scroll_history(&mut self, direction: i32) {
@@ -180,6 +199,7 @@ impl App {
         }
         self.cursor_position = self.input.chars().count();
         self.scroll_to_bottom = false;
+        self.input_scroll = 0;  // Сброс скролла
     }
 }
 
@@ -677,7 +697,7 @@ fn render_status(frame: &mut Frame, area: Rect) {
     frame.render_widget(Paragraph::new(line), area);
 }
 
-fn render_input(frame: &mut Frame, app: &App, area: Rect) {
+fn render_input(frame: &mut Frame, app: &mut App, area: Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray))
@@ -687,15 +707,46 @@ fn render_input(frame: &mut Frame, app: &App, area: Rect) {
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
 
-    let input_line = format!("> {}", app.input);
-    let paragraph = Paragraph::new(input_line);
+    // Рассчитываем видимую область ввода
+    let prefix = "> ";
+    let input = &app.input;
+    let cursor_char_pos = app.cursor_position;
+    let visible_width = inner_area.width.saturating_sub(2) as usize; // 2 символа для "> "
 
+    // Автоматическая корректировка скролла при перемещении курсора
+    if cursor_char_pos < app.input_scroll {
+        app.input_scroll = cursor_char_pos;
+    } else if cursor_char_pos >= app.input_scroll + visible_width {
+        app.input_scroll = cursor_char_pos - visible_width + 1;
+    }
+
+    // Формируем видимую часть строки
+    let visible_input: String = input.chars()
+        .skip(app.input_scroll)
+        .take(visible_width)
+        .collect();
+
+    // Создаем отображаемую строку с префиксом
+    let display_line = format!("{}{}", prefix, visible_input);
+
+    // Рассчитываем позицию курсора в видимой области
+    let visible_cursor_pos = cursor_char_pos - app.input_scroll;
+    let visible_before_cursor: String = input.chars()
+        .skip(app.input_scroll)
+        .take(visible_cursor_pos)
+        .collect();
+
+    let cursor_x = prefix.width() + visible_before_cursor.width();
+
+    // Отображаем ввод
+    let paragraph = Paragraph::new(display_line);
     frame.render_widget(paragraph, inner_area);
 
-    let byte_position = char_index_to_byte_index(&app.input, app.cursor_position);
-    let cursor_x = inner_area.x + 2 + byte_position as u16;
-    let cursor_y = inner_area.y;
-    frame.set_cursor(cursor_x, cursor_y);
+    // Устанавливаем позицию курсора
+    frame.set_cursor(
+        inner_area.x + cursor_x as u16,
+        inner_area.y
+    );
 }
 
 fn render_help(frame: &mut Frame, app: &mut App) {
@@ -849,7 +900,10 @@ pub fn run_tui() -> Result<()> {
                             }
                             KeyCode::Left => app.move_cursor(-1),
                             KeyCode::Right => app.move_cursor(1),
-                            KeyCode::Home => app.cursor_position = 0,
+                            KeyCode::Home => {
+                                app.cursor_position = 0;
+                                app.input_scroll = 0;  // Сброс скролла при переходе в начало
+                            }
                             KeyCode::End => app.cursor_position = app.input.chars().count(),
                             KeyCode::Up => app.navigate_history(-1),
                             KeyCode::Down => app.navigate_history(1),
@@ -879,6 +933,14 @@ pub fn run_tui() -> Result<()> {
                             }
                             MouseEventKind::ScrollUp => {
                                 app.history_scroll = app.history_scroll.saturating_sub(3);
+                            }
+                            MouseEventKind::ScrollRight => {
+                                // Горизонтальная прокрутка вправо
+                                app.input_scroll = app.input_scroll.saturating_add(3);
+                            }
+                            MouseEventKind::ScrollLeft => {
+                                // Горизонтальная прокрутка влево
+                                app.input_scroll = app.input_scroll.saturating_sub(3);
                             }
                             _ => {}
                         }
