@@ -1,7 +1,7 @@
 use crate::calc_engine::*;
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, MouseEventKind},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind},
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     execute,
     cursor::{SetCursorStyle, Show},
@@ -38,7 +38,7 @@ struct HistoryEntry {
 struct App {
     input: String,
     cursor_position: usize,
-    input_scroll: usize,  // Горизонтальное смещение ввода
+    input_scroll: usize,
     history: Vec<HistoryEntry>,
     cursor_history: usize,
     should_quit: bool,
@@ -56,7 +56,7 @@ impl App {
         App {
             input: String::new(),
             cursor_position: 0,
-            input_scroll: 0,  // Начальное смещение = 0
+            input_scroll: 0,
             history: Vec::new(),
             cursor_history: 0,
             should_quit: false,
@@ -67,6 +67,25 @@ impl App {
             history_scroll: 0,
             scroll_to_bottom: false,
             terminal_too_small: false,
+        }
+    }
+
+    fn adjust_input_scroll(&mut self, visible_width: usize) {
+        let total_chars = self.input.chars().count();
+        let cursor_pos = self.cursor_position;
+
+        // Курсор ушел за левую границу видимой области
+        if cursor_pos < self.input_scroll {
+            self.input_scroll = cursor_pos;
+        }
+        // Курсор ушел за правую границу видимой области
+        else if cursor_pos >= self.input_scroll + visible_width {
+            self.input_scroll = cursor_pos - visible_width + 1;
+        }
+
+        // Корректировка при уменьшении размера терминала
+        if self.input_scroll > total_chars.saturating_sub(visible_width) {
+            self.input_scroll = total_chars.saturating_sub(visible_width);
         }
     }
 
@@ -86,15 +105,15 @@ impl App {
                 self.cursor_history = 0;
                 self.input.clear();
                 self.cursor_position = 0;
+                self.input_scroll = 0;
                 self.history_scroll = 0;
-                self.input_scroll = 0;  // Сброс скролла
                 return;
             }
             "help" => {
                 self.show_help = true;
                 self.input.clear();
                 self.cursor_position = 0;
-                self.input_scroll = 0;  // Сброс скролла
+                self.input_scroll = 0;
                 return;
             }
             _ => {}
@@ -118,7 +137,7 @@ impl App {
             });
             self.input.clear();
             self.cursor_position = 0;
-            self.input_scroll = 0;  // Сброс скролла
+            self.input_scroll = 0;
             return;
         }
 
@@ -144,27 +163,52 @@ impl App {
         self.cursor_history = self.history.len().saturating_sub(1);
         self.input.clear();
         self.cursor_position = 0;
-        self.input_scroll = 0;  // Сброс скролла
+        self.input_scroll = 0;
         self.scroll_to_bottom = true;
     }
 
     fn move_cursor(&mut self, direction: i32) {
         match direction {
-            -1 => {
-                if self.cursor_position > 0 {
-                    self.cursor_position -= 1;
-                    // Если курсор уходит за левую границу видимой области
-                    if self.cursor_position < self.input_scroll {
-                        self.input_scroll = self.cursor_position;
-                    }
-                }
-            }
-            1 => {
-                if self.cursor_position < self.input.chars().count() {
-                    self.cursor_position += 1;
-                }
-            }
+            -1 => self.cursor_position = self.cursor_position.saturating_sub(1),
+            1 => self.cursor_position = (self.cursor_position + 1).min(self.input.chars().count()),
             _ => {}
+        }
+    }
+
+    fn move_cursor_by_words(&mut self, direction: i32) {
+        if direction < 0 {
+            // Перемещение влево на слово
+            let input_chars: Vec<char> = self.input.chars().collect();
+            let mut pos = self.cursor_position;
+
+            // Пропускаем пробелы слева
+            while pos > 0 && input_chars[pos - 1].is_whitespace() {
+                pos -= 1;
+            }
+
+            // Перемещаемся к началу слова
+            while pos > 0 && !input_chars[pos - 1].is_whitespace() {
+                pos -= 1;
+            }
+
+            self.cursor_position = pos;
+        } else {
+            // Перемещение вправо на слово
+            let input_chars: Vec<char> = self.input.chars().collect();
+            let mut pos = self.cursor_position;
+            let len = input_chars.len();
+
+            // Пропускаем текущее слово
+            while pos < len && !input_chars[pos].is_whitespace() {
+                pos += 1;
+            }
+
+            // Пропускаем пробелы
+            while pos < len && input_chars[pos].is_whitespace() {
+                pos += 1;
+            }
+
+            self.cursor_position = pos.min(len);
         }
     }
 
@@ -181,8 +225,8 @@ impl App {
             self.input.clear();
         }
         self.cursor_position = self.input.chars().count();
+        self.input_scroll = 0;
         self.scroll_to_bottom = false;
-        self.input_scroll = 0;  // Сброс скролла при навигации по истории
     }
 
     fn scroll_history(&mut self, direction: i32) {
@@ -198,8 +242,14 @@ impl App {
             self.input = self.history[self.cursor_history].input.clone();
         }
         self.cursor_position = self.input.chars().count();
+        self.input_scroll = 0;
         self.scroll_to_bottom = false;
-        self.input_scroll = 0;  // Сброс скролла
+    }
+
+    fn clear_input(&mut self) {
+        self.input.clear();
+        self.cursor_position = 0;
+        self.input_scroll = 0;
     }
 }
 
@@ -668,6 +718,7 @@ fn render_status(frame: &mut Frame, area: Rect) {
         ("↑/↓ or PgUp/PgDn", "Navigate"),
         ("F1", "Help"),
         ("Esc", "Close Help"),
+        ("Ctrl+U", "Clear Input"),
     ];
 
     let spans: Vec<Span> = keys
@@ -707,46 +758,56 @@ fn render_input(frame: &mut Frame, app: &mut App, area: Rect) {
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
 
-    // Рассчитываем видимую область ввода
-    let prefix = "> ";
-    let input = &app.input;
-    let cursor_char_pos = app.cursor_position;
-    let visible_width = inner_area.width.saturating_sub(2) as usize; // 2 символа для "> "
+    // Рассчитываем доступную ширину для ввода
+    let visible_width = (inner_area.width.saturating_sub(2)) as usize;
+    let total_chars = app.input.chars().count();
+    app.adjust_input_scroll(visible_width);
 
-    // Автоматическая корректировка скролла при перемещении курсора
-    if cursor_char_pos < app.input_scroll {
-        app.input_scroll = cursor_char_pos;
-    } else if cursor_char_pos >= app.input_scroll + visible_width {
-        app.input_scroll = cursor_char_pos - visible_width + 1;
-    }
-
-    // Формируем видимую часть строки
-    let visible_input: String = input.chars()
+    // Получаем видимую часть строки
+    let visible_input: String = app.input
+        .chars()
         .skip(app.input_scroll)
         .take(visible_width)
         .collect();
 
-    // Создаем отображаемую строку с префиксом
-    let display_line = format!("{}{}", prefix, visible_input);
+    // Формируем строку с префиксом
+    let input_line = format!("> {}", visible_input);
 
-    // Рассчитываем позицию курсора в видимой области
-    let visible_cursor_pos = cursor_char_pos - app.input_scroll;
-    let visible_before_cursor: String = input.chars()
-        .skip(app.input_scroll)
-        .take(visible_cursor_pos)
-        .collect();
-
-    let cursor_x = prefix.width() + visible_before_cursor.width();
-
-    // Отображаем ввод
-    let paragraph = Paragraph::new(display_line);
+    // Рендерим видимую часть
+    let paragraph = Paragraph::new(input_line);
     frame.render_widget(paragraph, inner_area);
 
-    // Устанавливаем позицию курсора
-    frame.set_cursor(
-        inner_area.x + cursor_x as u16,
-        inner_area.y
-    );
+    // Позиция курсора в видимой области
+    let visible_cursor = app.cursor_position.saturating_sub(app.input_scroll);
+    let visible_prefix = visible_input.chars().take(visible_cursor).collect::<String>();
+
+    // Устанавливаем курсор с учетом скролла
+    let cursor_x = inner_area.x + 2 + visible_prefix.width() as u16;
+    let cursor_y = inner_area.y;
+    frame.set_cursor(cursor_x, cursor_y);
+
+    // Рисуем индикаторы скролла с помощью Paragraph
+    let scroll_indicator_style = Style::default().fg(Color::DarkGray);
+
+    // Левый индикатор (есть символы слева)
+    if app.input_scroll > 0 {
+        let left_indicator = Paragraph::new("◀")
+            .style(scroll_indicator_style);
+        frame.render_widget(
+            left_indicator,
+            Rect::new(inner_area.x, inner_area.y, 1, 1)
+        );
+    }
+
+    // Правый индикатор (есть символы справа)
+    if total_chars > app.input_scroll + visible_width {
+        let right_indicator = Paragraph::new("▶")
+            .style(scroll_indicator_style);
+        frame.render_widget(
+            right_indicator,
+            Rect::new(inner_area.x + inner_area.width - 1, inner_area.y, 1, 1)
+        );
+    }
 }
 
 fn render_help(frame: &mut Frame, app: &mut App) {
@@ -811,11 +872,13 @@ fn render_help(frame: &mut Frame, app: &mut App) {
         Line::from(Span::styled("Advanced Features:", Style::default().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED))),
         Line::from("  details <expression> : Show step-by-step evaluation with time"),
         Line::from("  clear : Clear calculation history"),
+        Line::from("  Ctrl+U : Clear current input"),
         Line::from("  help : Show this help screen"),
         Line::from("  quit : Exit the calculator"),
         Line::from(""),
         Line::from(Span::styled("Navigation:", Style::default().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED))),
         Line::from("  ← → : Move cursor left/right"),
+        Line::from("  Ctrl+←/→ : Move cursor by words"),
         Line::from("  Home/End : Move to start/end of line"),
         Line::from("  ↑ ↓ : Navigate calculation history"),
         Line::from("  PgUp/PgDn : Page through history"),
@@ -859,7 +922,7 @@ pub fn run_tui() -> Result<()> {
 
         if event::poll(Duration::from_millis(50))? {
             match event::read()? {
-                Event::Key(KeyEvent { code, kind, .. }) if kind == KeyEventKind::Press => {
+                Event::Key(KeyEvent { code, modifiers, kind, .. }) if kind == KeyEventKind::Press => {
                     if app.show_help {
                         match code {
                             KeyCode::Down => app.help_scroll = app.help_scroll.saturating_add(1),
@@ -874,7 +937,7 @@ pub fn run_tui() -> Result<()> {
                         }
                     } else {
                         match code {
-                            KeyCode::Char(c) => {
+                            KeyCode::Char(c) if modifiers.is_empty() => {
                                 let byte_idx = char_index_to_byte_index(&app.input, app.cursor_position);
                                 app.input.insert(byte_idx, c);
                                 app.cursor_position += 1;
@@ -898,13 +961,21 @@ pub fn run_tui() -> Result<()> {
                                     app.input.drain(byte_idx..end);
                                 }
                             }
+                            KeyCode::Left if modifiers.contains(KeyModifiers::CONTROL) => {
+                                app.move_cursor_by_words(-1);
+                            }
+                            KeyCode::Right if modifiers.contains(KeyModifiers::CONTROL) => {
+                                app.move_cursor_by_words(1);
+                            }
                             KeyCode::Left => app.move_cursor(-1),
                             KeyCode::Right => app.move_cursor(1),
                             KeyCode::Home => {
                                 app.cursor_position = 0;
-                                app.input_scroll = 0;  // Сброс скролла при переходе в начало
+                                app.input_scroll = 0;
                             }
-                            KeyCode::End => app.cursor_position = app.input.chars().count(),
+                            KeyCode::End => {
+                                app.cursor_position = app.input.chars().count();
+                            }
                             KeyCode::Up => app.navigate_history(-1),
                             KeyCode::Down => app.navigate_history(1),
                             KeyCode::PageUp => app.scroll_history(-1),
@@ -915,6 +986,9 @@ pub fn run_tui() -> Result<()> {
                                 app.help_scroll = 0;
                             }
                             KeyCode::Esc => app.show_help = false,
+                            KeyCode::Char('u') | KeyCode::Char('U') if modifiers.contains(KeyModifiers::CONTROL) => {
+                                app.clear_input();
+                            }
                             _ => {}
                         }
                     }
@@ -933,14 +1007,6 @@ pub fn run_tui() -> Result<()> {
                             }
                             MouseEventKind::ScrollUp => {
                                 app.history_scroll = app.history_scroll.saturating_sub(3);
-                            }
-                            MouseEventKind::ScrollRight => {
-                                // Горизонтальная прокрутка вправо
-                                app.input_scroll = app.input_scroll.saturating_add(3);
-                            }
-                            MouseEventKind::ScrollLeft => {
-                                // Горизонтальная прокрутка влево
-                                app.input_scroll = app.input_scroll.saturating_sub(3);
                             }
                             _ => {}
                         }
