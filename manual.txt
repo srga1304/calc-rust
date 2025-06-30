@@ -14,9 +14,9 @@ constants, and various operations. Below is a complete reference guide.
    r : Root operation     (e.g., 8 r 3 = 2)
 
 2. MATHEMATICAL FUNCTIONS:
-   sin(x)   : Sine of x (x in degrees)
-   cos(x)   : Cosine of x (x in degrees)
-   tan(x)   : Tangent of x (x in degrees)
+   sin(x)   : Sine of x (x in radians)
+   cos(x)   : Cosine of x (x in radians)
+   tan(x)   : Tangent of x (x in radians)
    asin(x)  : Arcsine (returns degrees, x ∈ [-1,1])
    acos(x)  : Arccosine (returns degrees, x ∈ [-1,1])
    atan(x)  : Arctangent (returns degrees)
@@ -27,19 +27,38 @@ constants, and various operations. Below is a complete reference guide.
    floor(x) : Round down to nearest integer
    ceil(x)  : Round up to nearest integer
    round(x) : Round to nearest integer
+   sqrt(x)  : Square root (x >= 0)
 
-3. CONSTANTS:
+3. HYPERBOLIC FUNCTIONS:
+   sinh(x)  : Hyperbolic sine
+   cosh(x)  : Hyperbolic cosine
+   tanh(x)  : Hyperbolic tangent
+   asinh(x) : Inverse hyperbolic sine
+   acosh(x) : Inverse hyperbolic cosine (x >= 1)
+   atanh(x) : Inverse hyperbolic tangent (|x| < 1)
+
+4. COMBINATORICS:
+   fact(n) or factorial(n) : Factorial (n >= 0, integer)
+   perm(n, k) or npr(n, k) : Permutations (n >= 0, k >= 0, integers, k <= n)
+   comb(n, k) or ncr(n, k) : Combinations (n >= 0, k >= 0, integers, k <= n)
+
+5. STATISTICAL FUNCTIONS:
+   mean(a, b, ...)   : Arithmetic mean
+   median(a, b, ...) : Median
+   stdev(a, b, ...) or stddev(a, b, ...) : Standard deviation (at least 2 arguments)
+
+6. CONSTANTS:
    pi : π (3.141592653589793)
    e  : Euler's number (2.718281828459045)
 
-4. SYNTAX EXAMPLES:
+7. SYNTAX EXAMPLES:
    Basic: 2 + 3 * 4
-   Functions: sin(45) + cos(45)
+   Functions: sin(pi/2) + cos(0)
    Nested: 2 * (3 + 4)
    Complex: exp(ln(5)) + (10 r 2) * abs(-5)
    Scientific: 1.2e3 * 2 = 2400
 
-5. KEYBOARD SHORTCUTS:
+8. KEYBOARD SHORTCUTS:
    ← / →    : Move cursor left/right
    Backspace: Delete character before cursor
    Delete   : Delete character under cursor
@@ -50,7 +69,7 @@ constants, and various operations. Below is a complete reference guide.
    q        : Quit calculator
    help     : Show this manual
 
-6. ADVANCED USAGE:
+9. ADVANCED USAGE:
    - Expressions can include multiple nested parentheses
    - Scientific notation is supported (e.g., 1.2e3 = 1200)
    - Spaces are optional but can be used for readability

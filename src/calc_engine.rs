@@ -101,10 +101,10 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, String> {
                         Ok(())
                     })?;
             }
-            'a'..='z' | 'A'..='Z' => {
+            'a'..='z' | 'A'..='Z' | '_' => {
                 let mut ident = String::new();
                 while let Some(&ch) = chars.peek() {
-                    if ch.is_alphabetic() {
+                    if ch.is_alphanumeric() || ch == '_' {
                         ident.push(ch);
                         chars.next();
                     } else {
@@ -322,9 +322,9 @@ impl Parser {
                 // Execute function
                 let result = match name.as_str() {
                     // Trigonometric
-                    "sin" => args[0].to_radians().sin(),
-                    "cos" => args[0].to_radians().cos(),
-                    "tan" => args[0].to_radians().tan(),
+                    "sin" => args[0].sin(),
+                    "cos" => args[0].cos(),
+                    "tan" => args[0].tan(),
                     "asin" => {
                         if args[0] < -1.0 || args[0] > 1.0 {
                             return Err("asin domain: [-1, 1]".to_string());

@@ -134,7 +134,7 @@ pub fn is_math_function(word: &str) -> bool {
         "sin" | "cos" | "tan" | "asin" | "acos" | "atan" |
         "sinh" | "cosh" | "tanh" | "asinh" | "acosh" | "atanh" |
         "ln" | "log" | "exp" | "abs" | "sqrt" | "floor" | "ceil" | "round" |
-        "fact" | "perm" | "comb" | "mean" | "median" | "stdev" |
+        "fact" | "factorial" | "perm" | "npr" | "comb" | "ncr" | "mean" | "median" | "stdev" | "stddev" |
         "pi" | "e"
     )
 }

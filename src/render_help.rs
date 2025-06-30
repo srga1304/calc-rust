@@ -1,5 +1,12 @@
 
-use crate::tui_mode::*;
+use ratatui::{
+    Frame,
+    layout::Alignment,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, BorderType, Paragraph, Wrap, Clear},
+};
+use crate::tui_mode::app::App;
 
 pub fn render_help(frame: &mut Frame, app: &mut App) {
     let block = Block::default()
@@ -23,9 +30,9 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
         Line::from("  r : Root            (e.g., 8 r 3 = 2)"),
         Line::from(""),
         Line::from(Span::styled("Functions:", Style::default().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED))),
-        Line::from("  sin(x)   : Sine (x in degrees)"),
-        Line::from("  cos(x)   : Cosine (x in degrees)"),
-        Line::from("  tan(x)   : Tangent (x in degrees)"),
+        Line::from("  sin(x)   : Sine (x in radians)"),
+        Line::from("  cos(x)   : Cosine (x in radians)"),
+        Line::from("  tan(x)   : Tangent (x in radians)"),
         Line::from("  asin(x)  : Arc sine (result in degrees)"),
         Line::from("  acos(x)  : Arc cosine (result in degrees)"),
         Line::from("  atan(x)  : Arc tangent (result in degrees)"),
@@ -33,10 +40,10 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
         Line::from("  log(x)   : Base-10 logarithm"),
         Line::from("  exp(x)   : Exponential function"),
         Line::from("  abs(x)   : Absolute value"),
-        Line::from("  sqrt(x)  : Square root"),
         Line::from("  floor(x) : Round down to nearest integer"),
         Line::from("  ceil(x)  : Round up to nearest integer"),
         Line::from("  round(x) : Round to nearest integer"),
+        Line::from("  sqrt(x)  : Square root"),
         Line::from(""),
         Line::from(Span::styled("Hyperbolic Functions:", Style::default().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED))),
         Line::from("  sinh(x)  : Hyperbolic sine"),
@@ -47,14 +54,14 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
         Line::from("  atanh(x) : Inverse hyperbolic tangent (|x| < 1)"),
         Line::from(""),
         Line::from(Span::styled("Combinatorics:", Style::default().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED))),
-        Line::from("  fact(n)    : Factorial (n integer >=0)"),
-        Line::from("  perm(n, k) : Permutations (n choose k)"),
-        Line::from("  comb(n, k) : Combinations (n choose k)"),
+        Line::from("  fact(n) or factorial(n) : Factorial (n integer >=0)"),
+        Line::from("  perm(n, k) or npr(n, k) : Permutations (n choose k)"),
+        Line::from("  comb(n, k) or ncr(n, k) : Combinations (n choose k)"),
         Line::from(""),
         Line::from(Span::styled("Statistical:", Style::default().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED))),
         Line::from("  mean(a,b,...) : Arithmetic mean"),
         Line::from("  median(a,b,...) : Median"),
-        Line::from("  stdev(a,b,...) : Standard deviation"),
+        Line::from("  stdev(a,b,...) or stddev(a,b,...) : Standard deviation"),
         Line::from(""),
         Line::from(Span::styled("Constants:", Style::default().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED))),
         Line::from("  pi : π (3.14159...)"),
